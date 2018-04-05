@@ -84,10 +84,16 @@ class W3X():
 
         #listfile = self.hashtable_list.get_hash_table_entry("(listfile)")
         #print("list file:", listfile)
+        found_files = []
         for file in w3xfiles:
             hashfile = self.hashtable_list.get_hash_table_entry(file)
             if hashfile:
-                print("Found file in hash table: " + file)
+                hashfile.filename = file
+                found_files.append(hashfile)
+
+        for found in found_files:
+            print("Found file in hash table: " + found.filename)
+
 
 
 class HashTable():  # not actually a hashtable

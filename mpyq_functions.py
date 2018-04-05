@@ -1,6 +1,8 @@
 import struct
 from io import BytesIO
 
+# stolen from https://github.com/eagleflo/mpyq
+
 
 def _hash(string, hash_type):
     """Hash a string using MPQ's hash function."""
