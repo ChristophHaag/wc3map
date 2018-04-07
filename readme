@@ -1,0 +1,14 @@
+Start `./wc3map.py mapname.w3x` or `./wc3map.py` to default to an included map.
+
+Resources:
+
+https://github.com/eagleflo/mpyq
+incomplete pure python parser for mpq. Contains useful functions like encrypt, hash
+
+https://www.thehelper.net/threads/guide-explanation-of-w3m-and-w3x-files.35292/
+http://world-editor-tutorials.thehelper.net/cat_usersubmit.php?view=42787
+description of the w3x warcraft 3 map format
+
+http://www.zezula.net/en/mpq/mpqformat.html
+https://wowdev.wiki/MPQ
+description of the mpq archive format used to store files in a w3x file
