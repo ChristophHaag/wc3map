@@ -1,4 +1,6 @@
 import sys
+from enum import Enum
+
 import mpyq_functions
 
 
@@ -6,6 +8,17 @@ FILE_DOESNOTEXIST = "Does not exist"
 FILE_DELETED = "Deleted"
 FILE_OK = "OK"
 
+BLOCKFLAGS = {
+    "MPQ_FILE_IMPLODE": 0x00000100, 	# File is compressed using PKWARE Data compression library
+    "MPQ_FILE_COMPRESS": 0x00000200, 	# File is compressed using combination of compression methods
+    "MPQ_FILE_ENCRYPTED": 0x00010000, 	# The file is encrypted
+    "MPQ_FILE_FIX_KEY": 0x00020000, 	# The decryption key for the file is altered according to the position of the file in the archive
+    "MPQ_FILE_PATCH_FILE": 0x00100000, 	# The file contains incremental patch for an existing file in base MPQ
+    "MPQ_FILE_SINGLE_UNIT": 0x01000000, 	# Instead of being divided to 0x1000-bytes blocks, the file is stored as single unit
+    "MPQ_FILE_DELETE_MARKER": 0x02000000, 	# File is a deletion marker, indicating that the file no longer exists. This is used to allow patch archives to delete files present in lower-priority archives in the search chain. The file usually has length of 0 or 1 byte and its name is a hash
+    "MPQ_FILE_SECTOR_CRC": 0x04000000, 	# File has checksums for each sector (explained in the File Data section). Ignored if file is not compressed or imploded.
+    "MPQ_FILE_EXISTS": 0x80000000 	# Set if file exists, reset when the file was deleted
+}
 
 def bytes_to_int_le(bytes):  # https://coderwall.com/p/x6xtxq/convert-bytes-to-int-or-int-to-bytes-in-python
     result = 0
@@ -82,18 +95,84 @@ class W3X():
         print("Read hashtable from", self.HASHTABLEPOS, "to", self.HASHTABLEPOS + self.HASHTABLESIZE)
         self.hashtable_list = HashTable(MPQ[self.HASHTABLEPOS:self.HASHTABLEPOS + self.HASHTABLESIZE])
 
+        print("Read block table from", self.BLOCKTABLEPOS, "to", self.BLOCKTABLEPOS + self.BLOCKTABLESIZE)
+        self.blocktable = BlockTable(MPQ[self.BLOCKTABLEPOS:self.BLOCKTABLEPOS + self.BLOCKTABLESIZE])
+
         #listfile = self.hashtable_list.get_hash_table_entry("(listfile)")
         #print("list file:", listfile)
         found_files = []
         for file in w3xfiles:
-            hashfile = self.hashtable_list.get_hash_table_entry(file)
+            hashfile = self.hashtable_list.get_hashtable_entry(file)
             if hashfile:
                 hashfile.filename = file
                 found_files.append(hashfile)
 
         for found in found_files:
-            print("Found file in hash table: " + found.filename)
+            print("Found file in hash table:", found.filename)
 
+        for hashentry in self.hashtable_list.hashtable_list:
+            if hashentry.status in (FILE_DOESNOTEXIST, FILE_DELETED):
+                continue
+            blockentry = self.blocktable.get_blocktable_entry(hashentry.blockindex)
+            print("File in hash table:", hashentry, end=" ")
+            if not blockentry:
+                continue
+            for flagname, flagvalue in BLOCKFLAGS.items():
+                if blockentry.flags & flagvalue:
+                    print(flagname, end=", ")
+            print()
+            if blockentry.compressedsize == 0:
+                print("Compressed size is 0!")
+                continue
+            if blockentry.flags & BLOCKFLAGS["MPQ_FILE_ENCRYPTED"]:
+                print("Encrypted file!! TODO!!")
+                continue
+            file_data = MPQ[blockentry.filepos:blockentry.filepos + blockentry.compressedsize]
+            print("Compressed data", file_data)
+            uncompressed = mpyq_functions.decompress(file_data)
+            print("Uncompressed data", uncompressed)
+
+class BlockTable():
+    def __init__(self, bytearr):
+        self.blocktable_list = []
+        self.bytearr = bytearr
+        self.read_blocktable()
+
+    def read_blocktable(self):
+        BLOCKTABLEENTRYSIZE = 16
+
+        key = mpyq_functions._hash('(block table)', 'TABLE')
+
+        blocktable_data = mpyq_functions._decrypt(self.bytearr, key)
+
+        blockentrycount = 0
+        offset = 0
+        while offset < len(self.bytearr):
+            entry = BlockTableEntry(blocktable_data[offset:offset + BLOCKTABLEENTRYSIZE])
+            self.blocktable_list.append(entry)
+            #print("Hash entry at offset", offset, ":",  entry)
+            offset += BLOCKTABLEENTRYSIZE
+            blockentrycount += 1
+        print("Successfully read block table with {} entries".format(blockentrycount))
+
+    def get_blocktable_entry(self, blockindex):
+        if blockindex >= len(self.blocktable_list):
+            print("Block index", blockindex, "too big, only have", len(self.blocktable_list), "entries")
+            return None
+        entry = self.blocktable_list[blockindex]
+        #print("Entry:", entry)
+        return entry
+
+
+class BlockTableEntry():
+    def __init__(self, bytearr):
+        self.filepos = bytes_to_int_le(bytearr[0:4])
+        self.compressedsize = bytes_to_int_le(bytearr[4:8])
+        self.uncompressedsize = bytes_to_int_le(bytearr[8:12])
+        self.flags = bytes_to_int_le(bytearr[12:16])
+
+    def __str__(self):
+        return "BLOCKENTRY(Pos: {}, compressed: {}, uncompressed: {}, flags: {})".format(self.filepos, self.compressedsize, self.uncompressedsize, self.flags)
 
 
 class HashTable():  # not actually a hashtable
@@ -120,7 +199,7 @@ class HashTable():  # not actually a hashtable
             offset += HASHTABLEENTRYSIZE
         print("Successfully read hash table with {} file entries".format(filecount))
 
-    def get_hash_table_entry(self, filename):
+    def get_hashtable_entry(self, filename):
         """Get the hash table entry corresponding to a given filename."""
         hash_a = mpyq_functions._hash(filename, 'HASH_A')
         hash_b = mpyq_functions._hash(filename, 'HASH_B')
@@ -142,9 +221,10 @@ class HashTableEntry():
             self.status = FILE_DELETED
         else:
             self.status = FILE_OK
+        self.filename = ""
 
     def __str__(self):
-        return "{}.{}, locale: {}, platform: {}, blockindex: {}, status: {}".format(self.Name1, self.Name2, self.locale, self.platform, self.blockindex, self.status)
+        return "HASHENTRY({}: {}.{}, locale: {}, platform: {}, blockindex: {}, status: {})".format(self.filename, self.Name1, self.Name2, self.locale, self.platform, self.blockindex, self.status)
 
 w3xfiles = [
     '(signature)',

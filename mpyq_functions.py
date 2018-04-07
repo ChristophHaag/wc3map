@@ -1,8 +1,23 @@
 import struct
 from io import BytesIO
+import bz2
+import zlib
+
 
 # stolen from https://github.com/eagleflo/mpyq
 
+
+def decompress(data):
+    """Read the compression type and decompress file data."""
+    compression_type = ord(data[0:1])
+    if compression_type == 0:
+        return data
+    elif compression_type == 2:
+        return zlib.decompress(data[1:], 15)
+    elif compression_type == 16:
+        return bz2.decompress(data[1:])
+    else:
+        raise RuntimeError("Unsupported compression type.")
 
 def _hash(string, hash_type):
     """Hash a string using MPQ's hash function."""
