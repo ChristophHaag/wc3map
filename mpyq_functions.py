@@ -17,7 +17,8 @@ def decompress(data):
     elif compression_type == 16:
         return bz2.decompress(data[1:])
     else:
-        raise RuntimeError("Unsupported compression type.")
+        #raise RuntimeError("Unsupported compression type.")
+        print("Unsupported compression type.")
 
 def _hash(string, hash_type):
     """Hash a string using MPQ's hash function."""

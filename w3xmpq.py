@@ -3,6 +3,8 @@ import os.path
 
 import mpyq_functions
 
+HASHTABLEENTRYSIZE = 16
+BLOCKTABLEENTRYSIZE = 16
 
 FILE_DOESNOTEXIST = "Does not exist"
 FILE_DELETED = "Deleted"
@@ -36,6 +38,14 @@ def read_string(binary, start):
         cnt += 1
         byte = binary[cnt]
     return ret, cnt
+
+
+def blockflags_to_str(blockentry):
+    s = ""
+    for flagname, flagvalue in BLOCKFLAGS.items():
+        if blockentry.flags & flagvalue:
+            s += flagname + ", "
+    return s.rstrip(", ")
 
 
 class W3X():
@@ -124,14 +134,27 @@ class W3X():
 
         #print("After header", MPQ[32:1000])
 
-        print("Read hashtable from", self.HASHTABLEPOS, "to", self.HASHTABLEPOS + self.HASHTABLESIZE)
-        self.hashtable = HashTable(MPQ[self.HASHTABLEPOS:self.HASHTABLEPOS + self.HASHTABLESIZE])
+        hashtablesize_bytes = self.HASHTABLESIZE * HASHTABLEENTRYSIZE
+        blocktablesize_bytes = self.BLOCKTABLESIZE * BLOCKTABLEENTRYSIZE
+        print("Read hashtable from", self.HASHTABLEPOS, "to", self.HASHTABLEPOS + hashtablesize_bytes)
+        self.hashtable = HashTable(MPQ[self.HASHTABLEPOS:self.HASHTABLEPOS + hashtablesize_bytes])
 
-        print("Read block table from", self.BLOCKTABLEPOS, "to", self.BLOCKTABLEPOS + self.BLOCKTABLESIZE)
-        self.blocktable = BlockTable(MPQ[self.BLOCKTABLEPOS:self.BLOCKTABLEPOS + self.BLOCKTABLESIZE])
+        print("Read block table from", self.BLOCKTABLEPOS, "to", self.BLOCKTABLEPOS + blocktablesize_bytes)
+        self.blocktable = BlockTable(MPQ[self.BLOCKTABLEPOS:self.BLOCKTABLEPOS + blocktablesize_bytes])
 
-        #listfile = self.hashtable_list.get_hash_table_entry("(listfile)")
-        #print("list file:", listfile)
+        listfile = self.hashtable.get_hashtable_entry("(listfile)")
+        listfileblocks = self.blocktable.get_blocktable_entry(listfile.blockindex)
+        print(listfile, listfileblocks, blockflags_to_str(listfileblocks))
+        file_data = MPQ[listfileblocks.filepos:listfileblocks.filepos + listfileblocks.compressedsize]
+        print("Compressed data", file_data)
+        if listfileblocks.flags & BLOCKFLAGS["MPQ_FILE_ENCRYPTED"]:
+            print("decrypting: TODO...")
+            return
+
+        uncompressed = mpyq_functions.decompress(file_data)
+        print("Uncompressed data", uncompressed)
+
+        return
         found_files = []
         for file in self.get_filelist(w3xfile):
             # print("Trying name " + file)
@@ -156,16 +179,17 @@ class W3X():
                 if blockentry.flags & flagvalue:
                     print(flagname, end=", ")
             print()
-            if blockentry.compressedsize == 0:
-                print("Compressed size is 0!")
-                continue
-            if blockentry.flags & BLOCKFLAGS["MPQ_FILE_ENCRYPTED"]:
-                print("Encrypted file!! TODO!!")
-                continue
-            file_data = MPQ[blockentry.filepos:blockentry.filepos + blockentry.compressedsize]
-            print("Compressed data", file_data)
-            uncompressed = mpyq_functions.decompress(file_data)
-            print("Uncompressed data", uncompressed)
+            #if blockentry.compressedsize == 0:
+            #    print("Compressed size is 0!")
+            #    continue
+            #if blockentry.flags & BLOCKFLAGS["MPQ_FILE_ENCRYPTED"]:
+            #    print("Encrypted file!! TODO!!")
+            #    continue
+            #file_data = MPQ[blockentry.filepos:blockentry.filepos + blockentry.compressedsize]
+            #print("Compressed data", file_data)
+            #uncompressed = mpyq_functions.decompress(file_data)
+            #print("Uncompressed data", uncompressed)
+
 
 class BlockTable():
     def __init__(self, bytearr):
@@ -174,8 +198,6 @@ class BlockTable():
         self.read_blocktable()
 
     def read_blocktable(self):
-        BLOCKTABLEENTRYSIZE = 16
-
         key = mpyq_functions._hash('(block table)', 'TABLE')
 
         blocktable_data = mpyq_functions._decrypt(self.bytearr, key)
@@ -217,8 +239,6 @@ class HashTable():  # not actually a hashtable
         self.read_hashtable()
 
     def read_hashtable(self):
-        HASHTABLEENTRYSIZE = 16
-
         key = mpyq_functions._hash('(hash table)', 'TABLE')
 
         hashtable_data = mpyq_functions._decrypt(self.bytearr, key)
@@ -241,6 +261,8 @@ class HashTable():  # not actually a hashtable
         for entry in self.hashtable_list:
             #print(entry.Name1, hash_a, entry.Name2, hash_b)
             if entry.Name1 == hash_a and entry.Name2 == hash_b:
+                if not entry.filename:
+                    entry.filename = filename
                 return entry
 
     def get_as_list(self):
@@ -297,5 +319,6 @@ w3xfiles = [
     'war3mapSkin.txt',
     'war3mapExtra.txt',
     'war3map.imp',
+    r'Scripts\war3map.j',  # maybe?
     'war3map.wgt'  # maybe?
 ]
