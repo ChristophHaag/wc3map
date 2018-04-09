@@ -1,5 +1,5 @@
 import sys
-from enum import Enum
+import os.path
 
 import mpyq_functions
 
@@ -40,6 +40,38 @@ def read_string(binary, start):
 
 class W3X():
     #MPQ = None  # slice of the file that represents only the MPQ archive
+
+    def get_filelist(self, mapname):
+        filelistname = mapname + "_filelist.txt"
+        if os.path.isfile(filelistname):
+            return [line.rstrip() for line in open(filelistname, "r").readlines()]
+        else:
+            print("First run, trying all filenames from filelists, this can take a couple of seconds...")
+            print("(If you don't have it, download it from http://www.zezula.net/download/listfiles.zip and extract in the wc3map dir)")
+            found = []
+            with open(filelistname, "w") as f:
+                for name in w3xfiles:
+                    hashfile = self.hashtable.get_hashtable_entry(name)
+                    if hashfile:
+                        found.append(name.rstrip())
+                        f.write(name + "\n")
+
+                with open("listfiles/Warcraft III.txt", "r") as f2:
+                    for line in f2.readlines():
+                        name = line.rstrip()
+                        hashfile = self.hashtable.get_hashtable_entry(name)
+                        if hashfile and name not in found:
+                            found.append(name.rstrip())
+                            f.write(name + "\n")
+                with open("listfiles/Warcraft III Maps.txt", "r") as f2:
+                    for line in f2.readlines():
+                        name = line.rstrip()
+                        hashfile = self.hashtable.get_hashtable_entry(name)
+                        if hashfile and name not in found:
+                            found.append(name.rstrip())
+                            f.write(name + "\n")
+            print("found and wrote", len(found), "filenames to ", filelistname)
+            return found
 
     def __init__(self, w3xfile):
         with open(w3xfile, "rb") as f:
@@ -93,7 +125,7 @@ class W3X():
         #print("After header", MPQ[32:1000])
 
         print("Read hashtable from", self.HASHTABLEPOS, "to", self.HASHTABLEPOS + self.HASHTABLESIZE)
-        self.hashtable_list = HashTable(MPQ[self.HASHTABLEPOS:self.HASHTABLEPOS + self.HASHTABLESIZE])
+        self.hashtable = HashTable(MPQ[self.HASHTABLEPOS:self.HASHTABLEPOS + self.HASHTABLESIZE])
 
         print("Read block table from", self.BLOCKTABLEPOS, "to", self.BLOCKTABLEPOS + self.BLOCKTABLESIZE)
         self.blocktable = BlockTable(MPQ[self.BLOCKTABLEPOS:self.BLOCKTABLEPOS + self.BLOCKTABLESIZE])
@@ -101,21 +133,24 @@ class W3X():
         #listfile = self.hashtable_list.get_hash_table_entry("(listfile)")
         #print("list file:", listfile)
         found_files = []
-        for file in w3xfiles:
-            hashfile = self.hashtable_list.get_hashtable_entry(file)
+        for file in self.get_filelist(w3xfile):
+            # print("Trying name " + file)
+            hashfile = self.hashtable.get_hashtable_entry(file)
             if hashfile:
                 hashfile.filename = file
                 found_files.append(hashfile)
+                print("Found file in hash table:", hashfile)
+            else:
+                print("Did not find", file)
 
-        for found in found_files:
-            print("Found file in hash table:", found.filename)
-
-        for hashentry in self.hashtable_list.hashtable_list:
+        for hashentry in self.hashtable.get_as_list():
             if hashentry.status in (FILE_DOESNOTEXIST, FILE_DELETED):
+                # print("DOES NOT EXIST:", hashentry)
                 continue
             blockentry = self.blocktable.get_blocktable_entry(hashentry.blockindex)
             print("File in hash table:", hashentry, end=" ")
             if not blockentry:
+                print("... blockentry", hashentry.blockindex, "missing")
                 continue
             for flagname, flagvalue in BLOCKFLAGS.items():
                 if blockentry.flags & flagvalue:
@@ -208,6 +243,10 @@ class HashTable():  # not actually a hashtable
             if entry.Name1 == hash_a and entry.Name2 == hash_b:
                 return entry
 
+    def get_as_list(self):
+        return self.hashtable_list
+
+
 class HashTableEntry():
     def __init__(self, bytearr):
         self.Name1 = bytes_to_int_le(bytearr[0:4])
@@ -257,5 +296,6 @@ w3xfiles = [
     'war3mapMisc.txt',
     'war3mapSkin.txt',
     'war3mapExtra.txt',
-    'war3map.imp'
+    'war3map.imp',
+    'war3map.wgt'  # maybe?
 ]
